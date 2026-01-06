@@ -1,7 +1,5 @@
 // 不直接使用 Cookie 是因为 Cookie 过期时间较短。
 import { appendFileSync } from "fs";
-// 新增：Node.js 中显式导入 FormData（解决兼容性问题）
-import { FormData } from "form-data";
 
 const host = process.env.HOST || "ikuuu.one";
 
@@ -24,10 +22,11 @@ function formatCookie(rawCookieArray) {
     .join("; ");
 }
 
-// 登录获取 Cookie
+// 登录获取 Cookie（使用 Node.js 原生 FormData）
 async function logIn(account) {
   console.log(`${account.name}: 登录中...`);
 
+  // ✅ 使用 Node.js 18 原生 FormData（全局可用，无需导入）
   const formData = new FormData();
   formData.append("host", host);
   formData.append("email", account.email);
@@ -38,8 +37,10 @@ async function logIn(account) {
   const response = await fetch(logInUrl, {
     method: "POST",
     body: formData,
-    // 新增：添加请求头，适配部分服务器的 FormData 解析
-    headers: formData.getHeaders()
+    // 原生 FormData 会自动设置正确的 Content-Type，无需手动加头
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
   });
 
   if (!response.ok) {
@@ -68,7 +69,6 @@ async function checkIn(account) {
     method: "POST",
     headers: {
       Cookie: account.cookie,
-      // 新增：添加默认请求头，避免接口拒绝
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     },
   });
@@ -92,7 +92,6 @@ async function processSingleAccount(account) {
 
 // 输出结果到 GitHub Actions
 function setGitHubOutput(name, value) {
-  // 兼容：若 GITHUB_OUTPUT 不存在（本地测试），则不写入
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<EOF\n${value}\nEOF\n`);
   }
