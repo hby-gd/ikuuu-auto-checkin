@@ -1,7 +1,7 @@
 // 不直接使用 Cookie 是因为 Cookie 过期时间较短。
 import { appendFileSync } from "fs";
 // 新增：Node.js 中显式导入 FormData（解决兼容性问题）
-import { FormData } from "node:form-data";
+import { FormData } from "form-data";
 
 const host = process.env.HOST || "ikuuu.one";
 
