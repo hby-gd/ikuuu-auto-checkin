@@ -16,7 +16,8 @@ jobs:
       HOST: ${{ secrets.HOST }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
-      SCKEY: ${{ secrets.SCKEY }}  # 新增：Server酱 SCKEY（需配置到仓库Secrets）
+      SCKEY: ${{ secrets.SCKEY }}  # Server酱 SCKEY
+      JOB_STATUS: ${{ job.status }}  # 提前把job状态赋值给环境变量
 
     steps:
       - uses: actions/checkout@v4
@@ -47,20 +48,28 @@ jobs:
 
             [任务详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-      # 新增：Server酱 微信通知（和Telegram并行，互不影响）
+      # 修复：Server酱 微信通知（移除嵌套的${{ }}，改用Shell语法）
       - name: Server酱 Notify
         if: ${{ always() && env.SCKEY }}  # 仅当配置了SCKEY时执行
         run: |
-          # 获取签到结果（优先用脚本输出，无则显示执行状态）
-          RESULT="${{ steps.checkin.outputs.result || '执行状态：'${{ job.status == 'success' && '✅ 成功' || '❌ 失败' }}' }}"
-          # 转换为北京时间
+          # 1. 获取签到结果（Shell语法判断，无嵌套${{ }}）
+          RESULT="${{ steps.checkin.outputs.result }}"
+          # 2. 若无签到结果，用Shell判断JOB_STATUS生成状态文本
+          if [ -z "$RESULT" ]; then
+            if [ "$JOB_STATUS" = "success" ]; then
+              RESULT="执行状态：✅ 成功"
+            else
+              RESULT="执行状态：❌ 失败"
+            fi
+          fi
+          # 3. 转换为北京时间
           TIME=$(date -d '+8 hour' '+%Y-%m-%d %H:%M:%S')
-          # 拼接通知内容
+          # 4. 拼接通知内容（纯Shell语法，无语法冲突）
           CONTENT="### iKuuu 自动签到通知
           - 执行时间：$TIME（北京时间）
           - 签到结果：$RESULT
           - 任务详情：[点击查看](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          # 推送至Server酱
+          # 5. 推送至Server酱
           curl -X POST "https://sctapi.ftqq.com/${{ env.SCKEY }}.send" \
           -d "title=iKuuu 签到结果" \
           -d "desp=$CONTENT"
