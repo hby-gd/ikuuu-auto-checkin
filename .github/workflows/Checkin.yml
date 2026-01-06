@@ -3,8 +3,6 @@ name: IKUUU-Auto-Checkin
 on:
   workflow_dispatch:
   schedule:
-    # Actions 任务延迟过高，提前一些时间。
-    # UTC+8 ~ 07:33
     - cron: "33 23 * * *"
 
 jobs:
@@ -16,25 +14,24 @@ jobs:
       HOST: ${{ secrets.HOST }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
-      SCKEY: ${{ secrets.SCKEY }}  # Server酱 SCKEY（仅引用密钥，无其他变量）
+      SCKEY: ${{ secrets.SCKEY }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Use Node.js latest
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: latest
+          node-version: 18  # 固定版本，避免latest兼容性问题
 
-      - name: Checkin
+      - name: Run checkin script
         id: checkin
         shell: bash
-        run: |
-          node main.js
+        run: node main.js
 
-      # 原有：Telegram 通知（保留不动）
+      # Telegram 通知（保留）
       - name: Telegram Notify
-        if: ${{ always() && env.TELEGRAM_TOKEN && env.TELEGRAM_TO }}
+        if: ${{ always() && env.TELEGRAM_TOKEN != '' && env.TELEGRAM_TO != '' }}
         uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_TO }}
@@ -42,39 +39,35 @@ jobs:
           format: markdown
           message: |
             *iKuuu 自动签到*
-
-            ${{ steps.checkin.outputs.result  }}
-
+            ${{ steps.checkin.outputs.result || '无详细结果' }}
             [任务详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-      # 最终修复：Server酱 微信通知（完全规避作用域/表达式错误）
-      - name: Server酱 Notify
-        if: ${{ always() && env.SCKEY }}  # 仅当配置了SCKEY时执行
-        env:
-          # 关键：在steps内部的env中引用job.status（作用域允许）
-          JOB_STATUS: ${{ job.status }}
-          CHECKIN_RESULT: ${{ steps.checkin.outputs.result }}
-          RUN_ID: ${{ github.run_id }}
-          REPOSITORY: ${{ github.repository }}
+      # Server酱 通知（完全重构，规避所有表达式解析问题）
+      - name: ServerChan Notify
+        if: ${{ always() && env.SCKEY != '' }}
+        shell: bash
         run: |
-          # 1. Shell语法判断签到结果，无任何${{ }}嵌套
-          if [ -n "$CHECKIN_RESULT" ]; then
-            RESULT="$CHECKIN_RESULT"
-          else
-            if [ "$JOB_STATUS" = "success" ]; then
-              RESULT="执行状态：✅ 成功"
-            else
-              RESULT="执行状态：❌ 失败"
-            fi
+          # 定义基础变量（纯Shell，无YML表达式嵌套）
+          RESULT="${{ steps.checkin.outputs.result }}"
+          JOB_STATUS="${{ job.status }}"
+          RUN_ID="${{ github.run_id }}"
+          REPO="${{ github.repository }}"
+          SCKEY="${{ secrets.SCKEY }}"
+          
+          # 判断签到结果
+          if [ -z "$RESULT" ]; then
+              if [ "$JOB_STATUS" = "success" ]; then
+                  RESULT="执行状态：✅ 签到成功"
+              else
+                  RESULT="执行状态：❌ 签到失败"
+              fi
           fi
-          # 2. 转换为北京时间
+          
+          # 北京时间转换
           TIME=$(date -d '+8 hour' '+%Y-%m-%d %H:%M:%S')
-          # 3. 拼接通知内容（纯Shell变量，无语法冲突）
-          CONTENT="### iKuuu 自动签到通知
-          - 执行时间：$TIME（北京时间）
-          - 签到结果：$RESULT
-          - 任务详情：[点击查看](https://github.com/$REPOSITORY/actions/runs/$RUN_ID)"
-          # 4. 推送至Server酱（SCKEY用环境变量引用）
-          curl -X POST "https://sctapi.ftqq.com/$SCKEY.send" \
-          -d "title=iKuuu 签到结果" \
-          -d "desp=$CONTENT"
+          
+          # 拼接通知内容（单行字符串，避免YML换行解析问题）
+          CONTENT="### iKuuu 自动签到通知\n- 执行时间：$TIME（北京时间）\n- 签到结果：$RESULT\n- 任务详情：[点击查看](https://github.com/$REPO/actions/runs/$RUN_ID)"
+          
+          # 推送请求（单行命令，无换行）
+          curl -X POST "https://sctapi.ftqq.com/$SCKEY.send" -d "title=iKuuu 签到结果" -d "desp=$CONTENT"
