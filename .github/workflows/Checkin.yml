@@ -16,8 +16,7 @@ jobs:
       HOST: ${{ secrets.HOST }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
-      SCKEY: ${{ secrets.SCKEY }}  # Server酱 SCKEY
-      JOB_STATUS: ${{ job.status }}  # 提前把job状态赋值给环境变量
+      SCKEY: ${{ secrets.SCKEY }}  # Server酱 SCKEY（仅引用密钥，无其他变量）
 
     steps:
       - uses: actions/checkout@v4
@@ -48,28 +47,34 @@ jobs:
 
             [任务详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-      # 修复：Server酱 微信通知（移除嵌套的${{ }}，改用Shell语法）
+      # 最终修复：Server酱 微信通知（完全规避作用域/表达式错误）
       - name: Server酱 Notify
         if: ${{ always() && env.SCKEY }}  # 仅当配置了SCKEY时执行
+        env:
+          # 关键：在steps内部的env中引用job.status（作用域允许）
+          JOB_STATUS: ${{ job.status }}
+          CHECKIN_RESULT: ${{ steps.checkin.outputs.result }}
+          RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          # 1. 获取签到结果（Shell语法判断，无嵌套${{ }}）
-          RESULT="${{ steps.checkin.outputs.result }}"
-          # 2. 若无签到结果，用Shell判断JOB_STATUS生成状态文本
-          if [ -z "$RESULT" ]; then
+          # 1. Shell语法判断签到结果，无任何${{ }}嵌套
+          if [ -n "$CHECKIN_RESULT" ]; then
+            RESULT="$CHECKIN_RESULT"
+          else
             if [ "$JOB_STATUS" = "success" ]; then
               RESULT="执行状态：✅ 成功"
             else
               RESULT="执行状态：❌ 失败"
             fi
           fi
-          # 3. 转换为北京时间
+          # 2. 转换为北京时间
           TIME=$(date -d '+8 hour' '+%Y-%m-%d %H:%M:%S')
-          # 4. 拼接通知内容（纯Shell语法，无语法冲突）
+          # 3. 拼接通知内容（纯Shell变量，无语法冲突）
           CONTENT="### iKuuu 自动签到通知
           - 执行时间：$TIME（北京时间）
           - 签到结果：$RESULT
-          - 任务详情：[点击查看](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-          # 5. 推送至Server酱
-          curl -X POST "https://sctapi.ftqq.com/${{ env.SCKEY }}.send" \
+          - 任务详情：[点击查看](https://github.com/$REPOSITORY/actions/runs/$RUN_ID)"
+          # 4. 推送至Server酱（SCKEY用环境变量引用）
+          curl -X POST "https://sctapi.ftqq.com/$SCKEY.send" \
           -d "title=iKuuu 签到结果" \
           -d "desp=$CONTENT"
