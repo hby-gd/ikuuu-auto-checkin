@@ -1,0 +1,11 @@
+{
+  "name": "ikuuu-auto-checkin",
+  "version": "1.0.0",
+  "type": "module",  // 核心：启用 ES 模块
+  "dependencies": {
+    "form-data": "^4.0.0"  // 新增：依赖 form-data 包
+  },
+  "scripts": {
+    "start": "node main.js"
+  }
+}
