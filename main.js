@@ -1,7 +1,7 @@
 // 不直接使用 Cookie 是因为 Cookie 过期时间较短。
 import { appendFileSync } from "fs";
 
-const host = process.env.HOST || "ikuuu.one";
+const host = process.env.HOST || "ikuuu.fyi";
 
 const logInUrl = `https://${host}/auth/login`;
 const checkInUrl = `https://${host}/user/checkin`;
