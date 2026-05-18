@@ -11,16 +11,18 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ACCOUNTS: ${{ secrets.ACCOUNTS }}
+      ACCOUNT_SESSIONS: ${{ secrets.ACCOUNT_SESSIONS }}
       HOST: ${{ secrets.HOST }}
+      CHECK_ONLY: ${{ vars.CHECK_ONLY }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
       SCKEY: ${{ secrets.SCKEY }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 18  # 固定版本，避免latest兼容性问题
 

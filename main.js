@@ -1,138 +1,234 @@
-// 不直接使用 Cookie 是因为 Cookie 过期时间较短。
 import { appendFileSync } from "fs";
 
 const host = process.env.HOST || "ikuuu.fyi";
+const checkOnly = String(process.env.CHECK_ONLY || "").toLowerCase() === "true";
 
-const logInUrl = `https://${host}/auth/login`;
+const userUrl = `https://${host}/user`;
 const checkInUrl = `https://${host}/user/checkin`;
+const loginHint = "登录态已失效，请更新 ACCOUNT_SESSIONS 中对应 uid 的 key/expire_in。";
 
-// 格式化 Cookie
-function formatCookie(rawCookieArray) {
-  const cookiePairs = new Map();
-
-  for (const cookieString of rawCookieArray) {
-    const match = cookieString.match(/^\s*([^=]+)=([^;]*)/);
-    if (match) {
-      cookiePairs.set(match[1].trim(), match[2].trim());
+function parseJsonEnv(name, required = false) {
+  const raw = process.env[name];
+  if (!raw) {
+    if (required) {
+      throw new Error(`${name} 未配置。`);
     }
+    return null;
   }
 
-  return Array.from(cookiePairs)
-    .map(([key, value]) => `${key}=${value}`)
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`${name} 配置格式错误。`);
+  }
+}
+
+function buildCookie(account, session) {
+  return [
+    ["uid", account.uid],
+    ["email", account.email],
+    ["key", session.key],
+    ["expire_in", session.exp_in || session.expire_in],
+  ]
+    .map(([key, value]) => `${key}=${String(value).trim()}`)
     .join("; ");
 }
 
-// 登录获取 Cookie（使用 Node.js 原生 FormData）
-async function logIn(account) {
-  console.log(`${account.name}: 登录中...`);
+function getExpireIn(session) {
+  return session.exp_in || session.expire_in;
+}
 
-  // ✅ 使用 Node.js 18 原生 FormData（全局可用，无需导入）
-  const formData = new FormData();
-  formData.append("host", host);
-  formData.append("email", account.email);
-  formData.append("passwd", account.passwd);
-  formData.append("code", "");
-  formData.append("remember_me", "off");
+function parseExpireIn(expireIn) {
+  const expireAt = Number(expireIn);
+  if (!Number.isFinite(expireAt) || expireAt <= 0) {
+    throw new Error("expire_in 无效，请填写 Unix 时间戳（秒）。");
+  }
+  return expireAt;
+}
 
-  const response = await fetch(logInUrl, {
-    method: "POST",
-    body: formData,
-    // 原生 FormData 会自动设置正确的 Content-Type，无需手动加头
+function formatExpireTime(expireIn) {
+  const expireAt = parseExpireIn(expireIn);
+  const expireDate = new Date(expireAt * 1000);
+  const remainingSeconds = Math.max(0, expireAt - Math.floor(Date.now() / 1000));
+  const days = Math.floor(remainingSeconds / 86400);
+  const hours = Math.floor((remainingSeconds % 86400) / 3600);
+  const minutes = Math.floor((remainingSeconds % 3600) / 60);
+
+  return {
+    expireAt,
+    expireDate,
+    remainingText: `${days}天 ${hours}小时 ${minutes}分钟`,
+  };
+}
+
+function isExpired(expireIn) {
+  return parseExpireIn(expireIn) <= Math.floor(Date.now() / 1000);
+}
+
+function validateAccount(account) {
+  if (!account || typeof account !== "object") {
+    throw new Error("账户信息格式错误。");
+  }
+  if (!account.name || !account.uid || !account.email) {
+    throw new Error("ACCOUNTS 中每个账号都必须包含 name、uid、email。");
+  }
+}
+
+function getSessionForAccount(account, accountSessions) {
+  const session = accountSessions?.[String(account.uid)];
+  if (!session || typeof session !== "object") {
+    throw new Error(`${account.name}(uid=${account.uid}): ACCOUNT_SESSIONS 缺少该 uid 的 key/expire_in。`);
+  }
+  if (!session.key || !getExpireIn(session)) {
+    throw new Error(`${account.name}(uid=${account.uid}): ACCOUNT_SESSIONS 缺少 key/expire_in。`);
+  }
+  return {
+    key: session.key,
+    expire_in: getExpireIn(session),
+  };
+}
+
+async function parseJsonResponse(response) {
+  const rawText = await response.text();
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    throw new Error(rawText.includes("/auth/login") ? loginHint : `站点响应异常: ${rawText.slice(0, 120)}`);
+  }
+}
+
+async function checkSession(account, session) {
+  const response = await fetch(userUrl, {
+    method: "GET",
     headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
+      Cookie: buildCookie(account, session),
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    },
+    redirect: "manual",
   });
+
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("location") || "";
+    if (location.includes("/auth/login")) {
+      throw new Error(loginHint);
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`网络请求出错 - ${response.status}`);
   }
 
-  const responseJson = await response.json();
-
-  if (responseJson.ret !== 1) {
-    throw new Error(`登录失败: ${responseJson.msg}`);
-  } else {
-    console.log(`${account.name}: ${responseJson.msg}`);
+  const text = await response.text();
+  if (text.includes("/auth/login")) {
+    throw new Error(loginHint);
   }
 
-  let rawCookieArray = response.headers.getSetCookie();
-  if (!rawCookieArray || rawCookieArray.length === 0) {
-    throw new Error(`获取 Cookie 失败`);
-  }
-
-  return { ...account, cookie: formatCookie(rawCookieArray) };
+  const { expireDate, remainingText } = formatExpireTime(session.expire_in);
+  const sessionInfo = `登录态有效，过期时间 ${expireDate.toLocaleString("zh-CN", { hour12: false })}，剩余 ${remainingText}`;
+  console.log(`${account.name}(uid=${account.uid}): ${sessionInfo}`);
+  return sessionInfo;
 }
 
-// 签到
-async function checkIn(account) {
+async function checkIn(account, session) {
   const response = await fetch(checkInUrl, {
     method: "POST",
     headers: {
-      Cookie: account.cookie,
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      Cookie: buildCookie(account, session),
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     },
+    redirect: "manual",
   });
+
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get("location") || "";
+    if (location.includes("/auth/login")) {
+      throw new Error(loginHint);
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`网络请求出错 - ${response.status}`);
   }
 
-  const data = await response.json();
-  console.log(`${account.name}: ${data.msg}`);
+  const data = await parseJsonResponse(response);
+  if (!data || typeof data.ret !== "number" || typeof data.msg !== "string") {
+    throw new Error("站点响应异常: 缺少 ret/msg 字段。");
+  }
 
-  return data.msg;
+  if (data.ret === 1) {
+    console.log(`${account.name}(uid=${account.uid}): ${data.msg}`);
+    return data.msg;
+  }
+
+  if (data.ret === 0 && data.msg.includes("已经签到")) {
+    console.log(`${account.name}(uid=${account.uid}): ${data.msg}`);
+    return data.msg;
+  }
+
+  throw new Error(data.msg || "签到失败。");
 }
 
-// 处理单账户
-async function processSingleAccount(account) {
-  const cookedAccount = await logIn(account);
-  const checkInResult = await checkIn(cookedAccount);
-  return checkInResult;
+async function processSingleAccount(account, accountSessions) {
+  validateAccount(account);
+  const session = getSessionForAccount(account, accountSessions);
+
+  if (isExpired(session.expire_in)) {
+    throw new Error(`${account.name}(uid=${account.uid}): 登录态已过期，请更新 ACCOUNT_SESSIONS。`);
+  }
+
+  const sessionInfo = await checkSession(account, session);
+  if (checkOnly) {
+    return sessionInfo;
+  }
+
+  return await checkIn(account, session);
 }
 
-// 输出结果到 GitHub Actions
 function setGitHubOutput(name, value) {
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, `${name}<<EOF\n${value}\nEOF\n`);
   }
 }
 
-// 入口函数
 async function main() {
   let accounts;
+  let accountSessions;
 
   try {
-    if (!process.env.ACCOUNTS) {
-      throw new Error("❌ 未配置账户信息。");
+    accounts = parseJsonEnv("ACCOUNTS", true);
+    if (!Array.isArray(accounts)) {
+      throw new Error("ACCOUNTS 必须是数组。");
     }
 
-    accounts = JSON.parse(process.env.ACCOUNTS);
+    accountSessions = parseJsonEnv("ACCOUNT_SESSIONS", true);
+    if (!accountSessions || Array.isArray(accountSessions) || typeof accountSessions !== "object") {
+      throw new Error("ACCOUNT_SESSIONS 必须是对象，且键为 uid。");
+    }
   } catch (error) {
-    const message = `❌ ${
-      error.message.includes("JSON") ? "账户信息配置格式错误。" : error.message
-    }`;
+    const message = `❌ ${error.message}`;
     console.error(message);
     setGitHubOutput("result", message);
     process.exit(1);
   }
 
-  const allPromises = accounts.map((account) => processSingleAccount(account));
-  const results = await Promise.allSettled(allPromises);
+  const results = await Promise.allSettled(
+    accounts.map((account) => processSingleAccount(account, accountSessions))
+  );
 
-  const msgHeader = "\n======== 签到结果 ========\n\n";
-  console.log(msgHeader);
+  const header = checkOnly ? "\n======== 登录态检查结果 ========\n\n" : "\n======== 签到结果 ========\n\n";
+  console.log(header);
 
   let hasError = false;
-
   const resultLines = results.map((result, index) => {
-    const accountName = accounts[index].name;
+    const account = accounts[index];
+    const prefix = `${account.name}(uid=${account.uid})`;
     const isSuccess = result.status === "fulfilled";
 
     if (!isSuccess) hasError = true;
 
     const icon = isSuccess ? "✅" : "❌";
     const message = isSuccess ? result.value : result.reason.message;
-    const line = `${accountName}: ${icon} ${message}`;
+    const line = `${prefix}: ${icon} ${message}`;
 
     isSuccess ? console.log(line) : console.error(line);
     return line;
@@ -141,10 +237,11 @@ async function main() {
   const resultMsg = resultLines.join("\n");
   setGitHubOutput("result", resultMsg);
 
-  if (hasError) process.exit(1);
+  if (hasError) {
+    process.exit(1);
+  }
 }
 
-// 执行入口
 main().catch((error) => {
   console.error("❌ 脚本执行异常：", error.message);
   setGitHubOutput("result", `脚本执行异常：${error.message}`);
