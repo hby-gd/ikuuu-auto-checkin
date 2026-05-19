@@ -1,20 +1,37 @@
 import { appendFileSync } from "fs";
 
 function normalizeHost(rawHost) {
-  const value = String(rawHost || "ikuuu.fyi").trim();
-  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  let value = String(rawHost || "ikuuu.fyi").trim();
 
-  let parsed;
-  try {
-    parsed = new URL(withProtocol);
-  } catch {
-    throw new Error(`HOST 配置无效：${value}`);
+  // Allow copied values like "https://example.com/user" or quoted secrets.
+  value = value.replace(/^['"]+|['"]+$/g, "");
+  value = value.replace(/\/+(user|auth\/login|user\/checkin).*$/i, "");
+
+  const candidates = [];
+  if (/^https?:\/\//i.test(value)) {
+    candidates.push(value);
+  } else if (value.startsWith("//")) {
+    candidates.push(`https:${value}`);
+  } else {
+    candidates.push(`https://${value.replace(/^\/+/, "")}`);
+    candidates.push(value);
   }
 
-  parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
-  parsed.search = "";
-  parsed.hash = "";
-  return parsed;
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(candidate);
+      if (!parsed.hostname) {
+        continue;
+      }
+      return new URL(parsed.origin);
+    } catch {
+      // Try the next candidate.
+    }
+  }
+
+  throw new Error(
+    `HOST 配置无效，请填写域名或完整站点地址，例如 ikuuu.one 或 https://ikuuu.one`
+  );
 }
 
 const hostUrl = normalizeHost(process.env.HOST);
