@@ -12,10 +12,8 @@ jobs:
     env:
       ACCOUNTS: ${{ secrets.ACCOUNTS }}
       ACCOUNT_SESSIONS: ${{ secrets.ACCOUNT_SESSIONS }}
-      HOST: ${{ secrets.HOST }}
+      IKUUU_HOST: ${{ secrets.HOST }}
       CHECK_ONLY: ${{ vars.CHECK_ONLY }}
-      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-      TELEGRAM_TO: ${{ secrets.TELEGRAM_TO }}
       SCKEY: ${{ secrets.SCKEY }}
 
     steps:
@@ -24,52 +22,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 18  # 固定版本，避免latest兼容性问题
+          node-version: 18
 
-      - name: Run checkin script
-        id: checkin
-        shell: bash
-        run: node main.js
+      - name: Install dependencies
+        run: npm install
 
-      # Telegram 通知（保留）
-      - name: Telegram Notify
-        if: ${{ always() && env.TELEGRAM_TOKEN != '' && env.TELEGRAM_TO != '' }}
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_TO }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          format: markdown
-          message: |
-            *iKuuu 自动签到*
-            ${{ steps.checkin.outputs.result || '无详细结果' }}
-            [任务详情](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-      # Server酱 通知（完全重构，规避所有表达式解析问题）
-      - name: ServerChan Notify
-        if: ${{ always() && env.SCKEY != '' }}
-        shell: bash
-        run: |
-          # 定义基础变量（纯Shell，无YML表达式嵌套）
-          RESULT="${{ steps.checkin.outputs.result }}"
-          JOB_STATUS="${{ job.status }}"
-          RUN_ID="${{ github.run_id }}"
-          REPO="${{ github.repository }}"
-          SCKEY="${{ secrets.SCKEY }}"
-          
-          # 判断签到结果
-          if [ -z "$RESULT" ]; then
-              if [ "$JOB_STATUS" = "success" ]; then
-                  RESULT="执行状态：✅ 签到成功"
-              else
-                  RESULT="执行状态：❌ 签到失败"
-              fi
-          fi
-          
-          # 北京时间转换
-          TIME=$(date -d '+8 hour' '+%Y-%m-%d %H:%M:%S')
-          
-          # 拼接通知内容（单行字符串，避免YML换行解析问题）
-          CONTENT="### iKuuu 自动签到通知\n- 执行时间：$TIME（北京时间）\n- 签到结果：$RESULT\n- 任务详情：[点击查看](https://github.com/$REPO/actions/runs/$RUN_ID)"
-          
-          # 推送请求（单行命令，无换行）
-          curl -X POST "https://sctapi.ftqq.com/$SCKEY.send" -d "title=iKuuu 签到结果" -d "desp=$CONTENT"
+      - name: Run checkin app
+        run: npm start
