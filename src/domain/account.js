@@ -23,11 +23,11 @@ export function getSessionForAccount(account, accountSessions) {
   const expireIn = session?.exp_in || session?.expire_in;
 
   if (!session || typeof session !== "object") {
-    throw new ConfigError(`${account.name}(uid=${account.uid}): ACCOUNT_SESSIONS 缺少该 uid 的 key/expire_in。`);
+    throw new ConfigError("ACCOUNT_SESSIONS 缺少该 uid 的 key/expire_in。");
   }
 
   if (!session.key || !expireIn) {
-    throw new ConfigError(`${account.name}(uid=${account.uid}): ACCOUNT_SESSIONS 缺少 key/expire_in。`);
+    throw new ConfigError("ACCOUNT_SESSIONS 缺少 key/expire_in。");
   }
 
   return {
