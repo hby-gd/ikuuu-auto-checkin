@@ -1,10 +1,27 @@
 import { appendFileSync } from "fs";
 
-const host = process.env.HOST || "ikuuu.fyi";
+function normalizeHost(rawHost) {
+  const value = String(rawHost || "ikuuu.fyi").trim();
+  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+
+  let parsed;
+  try {
+    parsed = new URL(withProtocol);
+  } catch {
+    throw new Error(`HOST 配置无效：${value}`);
+  }
+
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed;
+}
+
+const hostUrl = normalizeHost(process.env.HOST);
 const checkOnly = String(process.env.CHECK_ONLY || "").toLowerCase() === "true";
 
-const userUrl = `https://${host}/user`;
-const checkInUrl = `https://${host}/user/checkin`;
+const userUrl = new URL("/user", hostUrl).toString();
+const checkInUrl = new URL("/user/checkin", hostUrl).toString();
 const loginHint = "登录态已失效，请更新 ACCOUNT_SESSIONS 中对应 uid 的 key/expire_in。";
 
 function parseJsonEnv(name, required = false) {
