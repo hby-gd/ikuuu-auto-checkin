@@ -1,31 +1,31 @@
-name: IKUUU-Auto-Checkin
+# name: IKUUU-Auto-Checkin
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: "33 23 * * *"
+# on:
+#   workflow_dispatch:
+#   schedule:
+#     - cron: "33 23 * * *"
 
-jobs:
-  checkin:
-    name: Checkin
-    runs-on: ubuntu-latest
-    env:
-      ACCOUNTS: ${{ secrets.ACCOUNTS }}
-      ACCOUNT_SESSIONS: ${{ secrets.ACCOUNT_SESSIONS }}
-      IKUUU_HOST: ${{ secrets.HOST }}
-      CHECK_ONLY: ${{ vars.CHECK_ONLY }}
-      SCKEY: ${{ secrets.SCKEY }}
+# jobs:
+#   checkin:
+#     name: Checkin
+#     runs-on: ubuntu-latest
+#     env:
+#       ACCOUNTS: ${{ secrets.ACCOUNTS }}
+#       ACCOUNT_SESSIONS: ${{ secrets.ACCOUNT_SESSIONS }}
+#       IKUUU_HOST: ${{ secrets.HOST }}
+#       CHECK_ONLY: ${{ vars.CHECK_ONLY }}
+#       SCKEY: ${{ secrets.SCKEY }}
 
-    steps:
-      - uses: actions/checkout@v5
+#     steps:
+#       - uses: actions/checkout@v5
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 18
+#       - name: Set up Node.js
+#         uses: actions/setup-node@v5
+#         with:
+#           node-version: 18
 
-      - name: Install dependencies
-        run: npm install
+#       - name: Install dependencies
+#         run: npm install
 
-      - name: Run checkin app
-        run: npm start
+#       - name: Run checkin app
+#         run: npm start
